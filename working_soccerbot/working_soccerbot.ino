@@ -7,6 +7,8 @@
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "esp_http_server.h"
+//libraries
+
 
 // ===========================
 // WiFi Settings
@@ -14,18 +16,21 @@
 const char *ssid = "STEMRouter";
 const char *password = "robot1234";
 
+
 // ===========================
 // Motor Pins
 // ===========================
+// define pins
 #define IN1 14  // Left Motor Forward
 #define IN2 15  // Left Motor Backward
 #define IN3 13  // Right Motor Forward
 #define IN4 12  // Right Motor Backward
-#define IN5 2
-#define IN6 1
+#define IN5 2   //dribbler
+#define IN6 1   //kicker
+//to initialize and obtain ip address, comment out ln6 stuff
 
 // ===========================
-// Freenove ESP32-S3 WROOM Camera Pins
+// AI THINKER ESP-32 pins
 // ===========================
 #define PWDN_GPIO_NUM 32
 #define RESET_GPIO_NUM -1
@@ -43,16 +48,19 @@ const char *password = "robot1234";
 #define VSYNC_GPIO_NUM 25
 #define HREF_GPIO_NUM 23
 #define PCLK_GPIO_NUM 22
+
 // ===========================
 // Stream setup
 // ===========================
-#define PART_BOUNDARY "123456789000000000000987654321"
-static const char *STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
-static const char *STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
-static const char *STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
+#define PART_BOUNDARY "123456789000000000000987654321"                                         //unique boundary between different frame data sets to separate them
+static const char *STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;  //replace old photo with new one when you see the divider like a flipbook
+static const char *STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";                            //put the divider in
+static const char *STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";     //"the data following this will be a jpeg image"
+
 
 httpd_handle_t camera_httpd = NULL;
-httpd_handle_t stream_httpd = NULL;
+httpd_handle_t stream_httpd = NULL;  //creating pointers( kind of like place markers) for two servers (one for camera and one for controls)
+
 
 // ===========================
 // Motor control functions
@@ -87,21 +95,31 @@ void turnRight() {
   digitalWrite(IN3, LOW);
   digitalWrite(IN4, HIGH);
 }
-void dribble(){
+void dribble() {
   digitalWrite(IN5, LOW);
   digitalWrite(IN6, HIGH);
 }
-void kick(){
+void kick() {
   digitalWrite(IN5, HIGH);
-  digitalWrite(IN6, LOW);
+  digitalWrite(IN6, LOW);  //comment out! for ip address
 }
-void sdk(){
+void sdk() {
   digitalWrite(IN5, LOW);
-  digitalWrite(IN6, LOW);
+  digitalWrite(IN6, LOW);  //comment out! for ip address
 }
 // ===========================
 // Webpage
 // ===========================
+//progmem -> use flash memory not RAM to save memory and prevent crashes
+//rawliteral-> "treat everything in here as pure text"
+//picking what the webpage looks like using CSS (cascading style sheets language)
+//div class controls -> creates webpage buttons and formats them(?): fwd, back, dribble, etc
+//data-cmd -> “labelling” the webpage buttons with their functions
+//fetch frame -> basically prints a bunch of pictures like a flipbook to make feed, making sure that it updates asap and doesn’t just chill on an old photo
+//keep an eye on specific keyboard keys because they are attached to functions too
+//document.querySelectorAll('.btn').forEach(btn =>... -> runs the command attached to the button when it is pressed and stops the command when the button is not pressed
+//keyMap -> binds keys to commands: w for forward, s for backwards, etc
+//const held = new Set();... -> holding down a key will make the command run constantly for as long as the key is held down
 static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -180,6 +198,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
       fetch('/motor?cmd=' + cmd).catch(() => {});
     }
 
+
     document.querySelectorAll('.btn').forEach(btn => {
       const cmd = btn.dataset.cmd;
       btn.addEventListener('mousedown',  () => { btn.classList.add('pressed');    sendCmd(cmd); });
@@ -188,6 +207,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
       btn.addEventListener('touchstart', (e) => { e.preventDefault(); btn.classList.add('pressed');    sendCmd(cmd); });
       btn.addEventListener('touchend',   (e) => { e.preventDefault(); btn.classList.remove('pressed'); if (cmd !== 'stop') sendCmd('stop'); });
     });
+
 
     const keyMap = {
       'ArrowUp': 'forward', 'ArrowDown': 'backward',
@@ -200,6 +220,7 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
       'e': 'kick', 'E': 'kick',
       'c': 'sdk', 'C': 'sdk',
     };
+
 
     const held = new Set();
     document.addEventListener('keydown', (e) => {
@@ -223,27 +244,32 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 </html>
 )rawliteral";
 
+
 // ===========================
 // Snapshot handler
 // ===========================
-static esp_err_t snapshot_handler(httpd_req_t *req) {
+static esp_err_t snapshot_handler(httpd_req_t *req) {  //take picture function
   camera_fb_t *fb = esp_camera_fb_get();
   esp_camera_fb_return(fb);
-  fb = esp_camera_fb_get();
+  fb = esp_camera_fb_get();  //get a photo, discard it, and get a new photo
+                             //fb-> frame buffer, pointer variable
+
 
   if (!fb) {
     httpd_resp_send_500(req);
-    return ESP_FAIL;
+    return ESP_FAIL;  //error
   }
 
-  httpd_resp_set_type(req, "image/jpeg");
+
+  httpd_resp_set_type(req, "image/jpeg");  //there will be a jpeg image
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-  httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+  httpd_resp_set_hdr(req, "Cache-Control", "no-cache");  //webpage should download a new photo each time (cache-busting)
+
 
   esp_err_t res;
   if (fb->format == PIXFORMAT_JPEG) {
-    res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
-  } else {
+    res = httpd_resp_send(req, (const char *)fb->buf, fb->len);  //if it’s formatted, send it over wifi
+  } else {                                                       //if it’s not a jpeg, convert it to a jpeg
     uint8_t *jpg_buf = NULL;
     size_t jpg_len = 0;
     bool converted = frame2jpg(fb, 80, &jpg_buf, &jpg_len);
@@ -257,8 +283,9 @@ static esp_err_t snapshot_handler(httpd_req_t *req) {
   }
 
   esp_camera_fb_return(fb);
-  return res;
+  return res;  //get rid of old photo
 }
+
 
 // ===========================
 // Motor handler
@@ -269,6 +296,7 @@ static esp_err_t motor_handler(httpd_req_t *req) {
 
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
+  //makes the commands/button pressing actually do stuff; the “forward” command is bound to the moveForward function, etc
   if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
     if (httpd_query_key_value(query, "cmd", cmd, sizeof(cmd)) == ESP_OK) {
       if (strcmp(cmd, "forward") == 0) moveForward();
@@ -289,6 +317,7 @@ static esp_err_t motor_handler(httpd_req_t *req) {
 // ===========================
 // Stream handler (VLC)
 // ===========================
+//rapidly sends photos in jpeg format over wifi to create a live stream
 static esp_err_t stream_handler(httpd_req_t *req) {
   camera_fb_t *fb = NULL;
   esp_err_t res = ESP_OK;
@@ -299,6 +328,7 @@ static esp_err_t stream_handler(httpd_req_t *req) {
   res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
   if (res != ESP_OK) return res;
 
+  
   while (true) {
     fb = esp_camera_fb_get();
     if (!fb) {
@@ -315,15 +345,17 @@ static esp_err_t stream_handler(httpd_req_t *req) {
       }
     }
 
+
     if (res == ESP_OK) {
       size_t hlen = snprintf((char *)part_buf, 64, STREAM_PART, _jpg_buf_len);
       res = httpd_resp_send_chunk(req, STREAM_BOUNDARY, strlen(STREAM_BOUNDARY));
       res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
-      res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
+      res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);  //sends the boundary string of numbers, what the size of the image data will be and then the image data
     }
 
+
     if (fb) {
-      esp_camera_fb_return(fb);
+      esp_camera_fb_return(fb);  //you can rewrite over the old photo!
       fb = NULL;
       _jpg_buf = NULL;
     } else if (_jpg_buf) {
@@ -335,9 +367,11 @@ static esp_err_t stream_handler(httpd_req_t *req) {
   return res;
 }
 
+
 // ===========================
 // Index handler
 // ===========================
+//runs index_html to create the webpage designed there at the ip address
 static esp_err_t index_handler(httpd_req_t *req) {
   httpd_resp_set_type(req, "text/html");
   return httpd_resp_send(req, (const char *)INDEX_HTML, strlen(INDEX_HTML));
@@ -350,9 +384,15 @@ void startCameraServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 80;
 
+
+
+
   httpd_uri_t index_uri = { .uri = "/", .method = HTTP_GET, .handler = index_handler, .user_ctx = NULL };
   httpd_uri_t snap_uri = { .uri = "/snapshot", .method = HTTP_GET, .handler = snapshot_handler, .user_ctx = NULL };
-  httpd_uri_t motor_uri = { .uri = "/motor", .method = HTTP_GET, .handler = motor_handler, .user_ctx = NULL };
+  httpd_uri_t motor_uri = { .uri = "/motor", .method = HTTP_GET, .handler = motor_handler, .user_ctx = NULL };  // setting the different functions to run on the webpage
+
+
+
 
   if (httpd_start(&camera_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(camera_httpd, &index_uri);
@@ -360,10 +400,15 @@ void startCameraServer() {
     httpd_register_uri_handler(camera_httpd, &motor_uri);
     Serial.println("Main server started on port 80");
   }
+  //start motor controls server on port 80
+
 
   config.server_port = 81;
   config.ctrl_port = 32769;
-  httpd_uri_t stream_uri = { .uri = "/stream", .method = HTTP_GET, .handler = stream_handler, .user_ctx = NULL };
+  httpd_uri_t stream_uri = { .uri = "/stream", .method = HTTP_GET, .handler = stream_handler, .user_ctx = NULL };  //start stream on port 81
+
+
+
 
   if (httpd_start(&stream_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(stream_httpd, &stream_uri);
@@ -371,12 +416,19 @@ void startCameraServer() {
   }
 }
 
+
+
+
 // ===========================
 // Setup
 // ===========================
 void setup() {
+  //Serial monitor
   Serial.begin(115200);
   Serial.setDebugOutput(false);
+
+
+
 
   // Motor pins
   pinMode(IN1, OUTPUT);
@@ -384,11 +436,19 @@ void setup() {
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
   pinMode(IN5, OUTPUT);
-  pinMode(IN6, OUTPUT);
+  pinMode(IN6, OUTPUT);  //comment out! for ip address
+
+
+
+
+  //stop motors on startup
   sdk();
   stopMotors();
 
-  // Camera config
+
+
+
+  // Camera config, defining which tiny camera wires control what
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -411,7 +471,10 @@ void setup() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
 
-  if (psramFound()) {
+
+
+
+  if (psramFound()) {  //if extra memory is on this board, use it
     config.frame_size = FRAMESIZE_QQVGA;
     config.jpeg_quality = 15;
     config.fb_count = 2;
@@ -426,16 +489,24 @@ void setup() {
     Serial.println("No PSRAM, using QVGA");
   }
 
+
+  //initialize camera
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x\n", err);
     return;
   }
 
+
+  //adjust image orientation
   sensor_t *s = esp_camera_sensor_get();
   s->set_hmirror(s, 1);
   s->set_vflip(s, 0);
 
+
+
+
+  //connect to router & print ip address (and other things but theyre not as important)
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -451,12 +522,17 @@ void setup() {
   Serial.print(IP);
   Serial.println(":81/stream");
 
+
+
+
   startCameraServer();
 }
+
+
+
 
 // ===========================
 // Loop
 // ===========================
 void loop() {
-
 }
