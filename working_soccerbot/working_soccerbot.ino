@@ -385,13 +385,9 @@ void startCameraServer() {
   config.server_port = 80;
 
 
-
-
   httpd_uri_t index_uri = { .uri = "/", .method = HTTP_GET, .handler = index_handler, .user_ctx = NULL };
   httpd_uri_t snap_uri = { .uri = "/snapshot", .method = HTTP_GET, .handler = snapshot_handler, .user_ctx = NULL };
   httpd_uri_t motor_uri = { .uri = "/motor", .method = HTTP_GET, .handler = motor_handler, .user_ctx = NULL };  // setting the different functions to run on the webpage
-
-
 
 
   if (httpd_start(&camera_httpd, &config) == ESP_OK) {
@@ -408,15 +404,11 @@ void startCameraServer() {
   httpd_uri_t stream_uri = { .uri = "/stream", .method = HTTP_GET, .handler = stream_handler, .user_ctx = NULL };  //start stream on port 81
 
 
-
-
   if (httpd_start(&stream_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(stream_httpd, &stream_uri);
     Serial.println("Stream server started on port 81 (VLC)");
   }
 }
-
-
 
 
 // ===========================
@@ -428,8 +420,6 @@ void setup() {
   Serial.setDebugOutput(false);
 
 
-
-
   // Motor pins
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
@@ -439,13 +429,9 @@ void setup() {
   pinMode(IN6, OUTPUT);  //comment out! for ip address
 
 
-
-
   //stop motors on startup
   sdk();
   stopMotors();
-
-
 
 
   // Camera config, defining which tiny camera wires control what
@@ -471,9 +457,7 @@ void setup() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
 
-
-
-
+  
   if (psramFound()) {  //if extra memory is on this board, use it
     config.frame_size = FRAMESIZE_QQVGA;
     config.jpeg_quality = 15;
@@ -489,7 +473,6 @@ void setup() {
     Serial.println("No PSRAM, using QVGA");
   }
 
-
   //initialize camera
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
@@ -497,14 +480,10 @@ void setup() {
     return;
   }
 
-
   //adjust image orientation
   sensor_t *s = esp_camera_sensor_get();
   s->set_hmirror(s, 1);
   s->set_vflip(s, 0);
-
-
-
 
   //connect to router & print ip address (and other things but theyre not as important)
   WiFi.begin(ssid, password);
@@ -522,13 +501,8 @@ void setup() {
   Serial.print(IP);
   Serial.println(":81/stream");
 
-
-
-
   startCameraServer();
 }
-
-
 
 
 // ===========================
